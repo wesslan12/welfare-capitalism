@@ -1,0 +1,446 @@
+---
+output: 
+  stevetemplates::article:
+    fig_caption: true
+bibliography: references.bib
+biblio-style: apsr
+title: "Revisiting the Three-Worlds of Welfare Capitalism "
+author: Kevin Westin
+abstract: ""
+keywords: "Three-Worlds of Welfare Capitalism, Social-Policy, Typologies"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=1in
+fontfamily: mathpazo
+fontsize: 11pt
+spacing: double
+endnote: no
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE,
+                      message=FALSE, warning=FALSE,
+                      fig.path='figs/',
+                      cache.path = '_cache/',
+                      fig.process = function(x) {
+                      x2 = sub('-\\d+([.][a-z]+)$', '\\1', x)
+                      if (file.rename(x, x2)) x2 else x
+                      })
+
+# SETUP ----
+library(FactoMineR)
+library(explor)
+library(ggplot2)
+library(dendextend)
+library(factoextra)
+library(corrplot)
+library(countrycode)
+library(tidyverse)
+library(readxl)
+library(missMDA)
+library(scales)
+library(kableExtra)
+```
+
+## Introduction
+
+The emergence of the modern welfare state transpired in most Western European countries in the mid-twentieth century.
+Following the traumatic experiences of war, depression, and breakdown of democracy, there was a growing impetus to invent a new political and economic order that sought to re-establish democracy, universal human rights, and the taming of unregulated capitalism [@powell2020]. Between 1945 and 1975, the period witnessed a considerable extension of social rights. States began to take social action by improving educational and health standards and providing social security in hard times through old-age pensions and other benefits. The extension through provisions and expenditures came to an abrupt halt in the early 1980s[@obinger2014]. There are many factors explaining why this occurred. External shocks and the rise of neo-liberalism are among the most common ones. Since then, most countries have remodeled their systems of social protection. Mainly by imposing cutbacks in some policy areas while expanding benefits and adopting new priorities in others to adapt their welfare states to a fundamentally changed environment [@andersen2007; @obinger2014].
+
+In other words, there was no single road to the welfare state but somewhat various ways to and through modernity.
+Comparative welfare state research has identified various variables accounting for these cross-national differences.
+As Peter Starke & Herbert Obinger notes, *"National welfare states evolved out of their unique institutional heritage that dates back at least to the 1880s. Spending dynamics were strongly related to the age of the national social security system (Wilensky, 1975), and early choices about essential structural program characteristics such as benefit eligibility rules, coverage, and the mode of financing shaped subsequent developments (Alber, 1982)* [@obinger2014]
+
+To better understand these differences, various classificatory attempts have been made.
+Esping-Andersen's (1990) typology of three ideal-typical welfare regimes is arguably the most important [@yörük2019].\
+The central argument of Esping-Andersen is that welfare states cluster around three distinct welfare regimes.
+The operationalization of welfare regimes denotes "the institutional arrangements, rules, and understandings that guide and shape concurrent social policy decisions, expenditure developments, and even the respond-and-demand of citizens and welfare customers[@abusharkh2010]. According to Esping-Andersen, there are three distinct types of regimes, determined by their degree of decommodification and the kind of stratification they produce in society. Decommodification refers to the living standards provided by the welfare state for unemployed workers or workers outside the market. In contrast, stratification refers to the outcome of redistribution and the level of universality of solidarity imposed by the welfare state, reflecting inequality in society. Based upon these two dimensions, Esping-Andersen distinguished between (a) liberal, (b) conservative--corporatist, and (c) social-democratic welfare states [@esping-andersen1990]. The encompassing model of the welfare state is the social-democratic regime that emerged in the Nordic countries under social democratic hegemony. The emphasis lies in governmental welfare provision, and benefits are universal, citizenship-based, and often tax-funded. By contrast, the liberal regime (in most English-speaking countries) stresses the importance of individualism, self-responsibility, and an anti-state ideology. This regime offers minimum and means-tested benefits as well as flat-rate insurance benefits. Coverage of public programs is therefore low and covers only basic needs. The conservative-corporatist regime is arrayed between these poles and encompasses countries in continental Europe. The most salient factor in political terms is the fundamental role of Christian democratic parties. Occupational position, status, hierarchy, and patriarchal values are central features of this regime. Benefit eligibility is attached to labor market participation and marriage, and the level of benefits is merit-based and rises with income and employment records. Mandatory and occupationally fragmented social insurance funded from contributions by employers and employees is the dominant program. Service provision is weakly developed as care work is traditionally left to families (most often women) [@esping-andersen1990]. Despite various lines of criticism and suggestions for additional welfare state types, this seminal typology is still an adequate heuristic device for understanding the impact of different welfare state types on equality, employment patterns and gender relations, their vulnerabilities in a changing socio-economic environment, and their reform opportunities [@powell2020]. However, there are reasons to suspect the welfare-regime typology is less generalizable in a 21st-century context. A context where states need to re-evaluate and adopt to new risks and challlanges. For instance, with globalization comes an increase in the mobility of labour, international tax competion, and unemployment [@andersen2007]. Therefore, there is need to evaluate the validity of the three worlds typology in a 21st-century context.
+
+*Research Question:* Can welfare states today be categorized into the three welfare-state regimes discovered thirty years ago?
+
+```{r cars, include=FALSE}
+#Preparing data
+data.1 <- read.csv("Socialism.csv")
+data.1 <- data.1 %>% 
+        mutate(ccode = countrycode(ccode, "cown", "country.name"))
+countries <- data.1[,2]
+#Personalized data set with variables from OECD
+Dev_scores <- read_excel("Welfare regimes/Dev.scoresFIN.xlsx", 
+                            col_types = c("text", "numeric", "numeric", 
+                                          "numeric", "numeric", "numeric", 
+                                          "numeric", "numeric", "numeric","numeric"), 
+                            na = "-")
+
+D.score <- Dev_scores %>% 
+        filter(Countries %in% countries)
+#Make sure they have a common identifier
+Dev_scores$ccode <- Dev_scores$Countries
+#Merge the two datasets
+final <- data.1 %>% 
+        inner_join(Dev_scores, by="ccode")
+#Filter variables of interest
+final <- final %>% 
+        select(2,matches(grep("^exp.soc|^exp.total|^exp.health|^exp.edu|gemp", 
+                              colnames(final), 
+                              value = T)), 249:257)
+```
+
+```{r include=FALSE}
+#Analyzing missing values with custom functions
+total_col_calculation <- function(data, var_names, prop){
+        #Calculate number of NA values for each row
+        a <- colSums(is.na(data[colnames(data)]))
+        b <- round((a / nrow(data)) * 100, 2)
+        #Identify which rows have more than prop missing values, making it global to be able to remove these. 
+        ff <<- which(colMeans(is.na(data[var_names])) > prop)
+        #Store the country variable from the original data
+        
+        #Creating a matrix to display which row, country and number of missing values
+        df <- matrix(NA, nrow = length(ff), ncol = 3)
+        
+        df[,1] <- ff
+        df[,2] <- a[c(ff)]
+        df[,3] <- b[c(ff)]
+        colnames(df) <- c("Col", "N", "% missing")
+        as.data.frame(df)
+        
+}
+total_sum_calculation <- function(data, var_names, prop){
+        #Calculate number of NA values for each row
+        a <- rowSums(is.na(data[colnames(data)]))
+        b <- round((a / ncol(data)) * 100, 2)
+        #Identify which rows have more than prop missing values, making it global to be able to remove these. 
+        f <<- which(rowMeans(is.na(data[var_names])) > prop)
+        #Store the country variable from the original data
+        u <- data[f, 1]
+        #Creating a matrix to display which row, country and number of missing values
+        df <- matrix(NA, nrow = length(f), ncol = 4)
+        
+        df[,1] <- f
+        df[,2] <- u
+        df[,3] <- a[c(f)]
+        df[,4] <- b[c(f)]
+        colnames(df) <- c("ROW", "COUNTRY", "N", "% missing")
+        as.data.frame(df)
+}
+
+```
+
+## Data and Methods
+
+```{r include=FALSE}
+
+#Rescaling variables
+test <- sapply(final[,-1], rescale)
+test <- as.data.frame(test)
+
+nb <- estim_ncpPCA(test,ncp.min = 0, scale = T)
+mi <- MIPCA(test, scale=T, ncp = nb$ncp)
+
+#Imputed dataset
+res <- mi$res.imputePCA
+res <- as.data.frame(res)
+res <- cbind(final[,1],res)
+
+```
+
+Data This study will be conducted as a quasi-replication to investigate the research question.
+What I mean by that is that measuring de-commodification and stratification exactly as Esping-Andersen did is difficult (and beyond the scope of this assignment) and proved to be more time-consuming than I thought.
+Some argue that the operationalization is too specific for databases and close to impossible to find the same sources as in "Three Worlds," primarily due to a lack of explanation of which sources are used for which variables [@yörük2019].
+Given these constraints, it is not a feasible pursuit.
+Instead, indicators that at least load on similar factors were implemented.
+Moreover, in some cases, I would argue, they provide a more rigorous account of the indicator.
+
+The data stem from the "Measuring Socialism" and OECD databases.
+The "Measuring Socialism" data set compiles data from several databases to create a comprehensive, cross-sectional snapshot of data to capture different facets of government taxation, spending, organizational resources, regulations, and programs[@cohen].
+
+The concept of "Decommodification" measures the degree to which workers can lead a decent living off the market and still have access to welfare.
+This concept is included in the "welfare policy" variables (See appendix 1.4), and indicators are thought to represent the scope of social policy efforts'.
+The other defining concept of a welfare-state regime is stratification or "system of stratification," which refers to the redistributive characteristics of the welfare state.
+There are three measures of welfare-regime stratification, degree of socialism, liberalism, and conservatism within a country.
+The conservative index is measured by the degree of Corporatism and Etatism.
+Esping Andersens' definition of Corporatism is the "number of distinct public pension schemes." I chose to diverge from this definition since I believe it is rather vague and hard to comprehend what such definition exactly encompasses.
+Instead, I operationalized it as collective bargaining: "the share of workers covered by valid collective agreements in force. What counts as a valid collective agreement in force is defined by international and national legislation and, in some cases, tribunals (OECD, 2022). I am aware that it might be a redundant definition, and there are probably more omnipotent definitions of the concept. Degree of Etatism is defined as compensation to government employees as a percentage of total expenditure.
+
+The liberal index measures the number of means-tested benefit systems, private pension expenditure, and private health expenditure.
+I could not find any indicators of means-tested benefit systems or anything similar.
+Therefore, I chose to exclude this indicator.
+
+The socialist index measures average benefit universalism.
+Universalism refers to an average coverage of sickness, unemployment, and pensions.
+I chose to include public health expenditures on these measures instead of average coverage.
+
+***Missing values*** .The "Measuring socialism" dataset has a non-trivial amount of NA values.
+After variable and case (country) selection were made, three countries (Latvia, Lithuania, and New Zealand) were shown to have over 30 % missing values.
+To handle missing values, a multiple imputation strategy was adopted.
+More specifically, "Regularized Iterative PCA." The general idea is to impute data using principal component methods that consider both similarities between observations and relationships between variables [@josse2016].
+The practical application of such methods in R is very straightforward, thanks to the missMDA package developed by Husson & Josse (2016).
+The analysis results were adequate and posed no reason for concern (see appendix 1.1).
+The OECD data proved to come with missing values as well.
+I tried to limit the scope of years to the ones in the socialism dataset (mainly 2017).
+However, some countries had no data for that year.
+In such cases, I choose the closest year where data was available.
+
+***Analytical Strategy***.
+I will be utilizing principal component analysis (PCA), and hierarchical cluster analys to answer the research question.
+The primary purpose of PCA is to identify patterns, reduce dimensionality by removing noise and redundancy in the data, and identify correlated variables .The logic behind PCA is to transform a number of variables into a smaller number of uncorrelated variables, called principal components.
+PCA is often used to operationalize complex phenomena, typologies, or "meta-structures" (happiness or socialism) [@shlens].
+Another merit of the PCA method is that it is useful when the variables in the dataset are highly correlated.
+We have reason to suspect that this might be the case.
+Take, for example, the variables on expenditures.
+Thus, it is a suitable method for comparing different countries' social-policy paradigms.
+
+The second method is Hierarchical Clustering on Principal Components (HCPC).
+The goal of clustering is to identify pattern or groups of similar objects within a data set.
+In contrast to partitioning clustering, hierarchical clustering does not necessitate the pre-specification of clusters.
+In the context of the study, it proves to be a more fruitful approach since the information regarding how countries cluster with respect to welfare regimes is highly ambiguous (see @yörük2019).
+Combining PCA and HCPC allows for more stable clusters.
+The PCA in this context functions to de-noise the data by reducing the data dimensions to a few continuous variables that explain most of the variation in the data.
+
+## Results
+
+*Principal Component Analysis* The PCA of the 30 countries and ten variables indicates that the first principal component accounts for 31.62 percent of the variability in the data.
+While the second component accounts for 21.59 percent of the remaining variability (see plot).
+I define the first principal component as "Social protection" and the second principal component as "commodification." The social protection score includes high government expenditures (total, health, social protection, and education) and labor market protection variables, including Corporatism and Union density.
+The commodification score includes higher private expenditures (health and pensions), a more diverse population, and low public expenditures (total and social protection).
+The individual contribution of each country is displayed in Figure 1,
+
+Table 1.3.4 in the appendix summarizes the "social protection" and "commodification" scores for the countries.
+We note that, Denmark and Finland have the highest "social protection" scores, followed by Sweden, Finland, Norway, and Belgium.
+Further, Turkey has the lowest "Social Protection" score, followed by Latvia, Lithuania, and Switzerland.
+Switzerland has the highest "Commodification" score, followed by the Anglo-Saxon countries (except the UK).
+
+```{r echo=FALSE}
+######################## PCA #####################################
+rownames(res) <- res[,1]
+names(res)[1] <- "Countries"
+res.pca <- PCA(res,quali.sup = 1,scale.unit = T, graph = F)
+res.pca1 <- prcomp(res[,-1])
+data.wf <- cbind(res, res.pca1$x[,1:2])
+gradient.cols = c("white", "blue", "red")
+```
+
+```{r ,fig.cap = "Contribution by country",echo=FALSE}
+fviz_pca_ind(res.pca, col.ind = "contrib", 
+              geom.ind = "text",
+              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             
+              repel = TRUE # Avoid text overlapping (slow if many points)
+)
+```
+
+```{r ,fig.cap = "Displayes the individual contribution by each indicator. We note that there are substantial contributions from Union Density, and Total expenditure.", echo=FALSE}
+gradient.cols = c("white", "blue", "red")
+fviz_pca_var(res.pca, col.var = "contrib",
+              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+              repel = TRUE # Avoid text overlapping
+)
+
+
+```
+
+*Hierarchical Clustering on Principal Component* The HCPC of the thirty countries and ten variables suggests three distinct clusters (The scree plot suggests 3 clusters).
+The length of the branches is the Euclidean distance between two points in multidimensional space and reflects the relative difference between the observations.
+For instance, looking at the large cluster (grey), we find a sub-node that contains countries like Austria and France.
+The branches in this sub-node are short, which tells us that these countries are closely plotted on the PC dimensions and are similar in terms of their "add axis meaning @shlensa."
+
+```{r echo=FALSE}
+#HIERARCHICAL CLUSTERING
+res.hcpc <- HCPC(res.pca, graph=F)
+fviz_dend(res.hcpc, cex = 0.7, palette = "jco", rect = T, rect_fill = T,rect_border = "jco", labels_track_height = 0.8)
+
+
+```
+
+```{r, echo=F}
+
+fviz_cluster(res.hcpc,
+              repel = TRUE,            # Avoid label overlapping
+              show.clust.cent = TRUE, # Show cluster centers
+              palette = "jco",         # Color palette see ?ggpubr::ggpar
+              ggtheme = theme_minimal(),
+              main = "Factor map"
+)
+
+```
+
+The results indicate that countries in cluster 1 have low coordinates on axes social protection and commodification Countries in cluster 2 have high coordinates on commodification, while countries in the third cluster have high coordinates on social protection.
+Suggesting, a patterns similar to the one in Esping-Andersens study.
+More specifically,the countries seem to cluster based on the liberal, conservative, and social democratic typology.In addition, this clustering seem to follow the general pattern observed previously, namely, distinct Nordic, Anglo-Saxon, and Continental European clusters.
+
+For instance, the variables "Employment in Government," "Labour Force Participation Rate for Females," "Corporatism," "Life Expectancy," "Expenditure Education," "Union Density," "Private Pensions," "Ethnic Diversity," and "GDP/Capita" are most significantly associated with cluster 1.
+The value on all of these variables is less than the overall mean across all clusters.
+Furthermore, the variables "Ethnic Diversity," "Private Pension Expenditure," "GDP/Capita," "Gini Index," "Private Health Expenditure," "Social Protection Expenditure," and "Total governmental expenditure" are most significantly associated with cluster 2.In contrast, the values for "Social Protection Expenditure" and "Total governmental expenditure" is lower than the overall mean across clusters.
+Thus, cluster two seem to adhere to the liberal classification.\
+Finally, the variables "Union Density," "corporatism," "Expenditure (total, socprot, health, and education)," "Private Health Expenditure," and "Gini Index" are most significantly associated with cluster 3.
+We note that the value for all the variables, except "Private Health Expenditure" and "Gini Index," is higher than the overall mean across clusters.
+
+## Conclusion
+
+Firstly, it is important to note the methodological impact on the results.
+As stated, in previous section this analysis should be interpreted as a sort of quasi-replication.
+Notwithstanding this limitation, we do note patterns that seem to resemble those found in Esping-Andersens original study (see table below).
+With some exceptions, cluster one (conservative) doesn't seem to take the center between the polarities liberal and social-democratic.
+Further studies could examine the evolution of the welfare-regimes by using longitudinal data.
+Another suggestion would be to try to adopt similar typologies to non-oecd countries.
+
+```{r echo=FALSE}
+################################################################################
+nord <- final %>%
+        filter(ccode %in% c("Sweden", "Finland", "Norway", "Denmark", "Netherlands")) %>% 
+        summarise(across(where(is.numeric), mean,
+                         na.rm = TRUE, .names = "{.col}__{.fn}")) %>%
+        pivot_longer(everything()) %>%
+        separate(name, c("v", "f"), sep = "__") %>%
+        pivot_wider(names_from = v, values_from = value)
+       
+angl <- final %>%
+        filter(ccode %in% c("Canada", "United States", "Australia", "Ireland", "Japan", "Switzerland")) %>% 
+        summarise(across(where(is.numeric), mean,
+                         na.rm = TRUE, .names = "{.col}__{.fn}")) %>%
+        pivot_longer(everything()) %>%
+        separate(name, c("v", "f"), sep = "__") %>%
+        pivot_wider(names_from = v, values_from = value)
+con <- final %>%
+        filter(ccode %in% c("Austria", "Belgium", "France", "Germany", "Italy")) %>% 
+        summarise(across(where(is.numeric), mean,
+                         na.rm = TRUE, .names = "{.col}__{.fn}")) %>%
+        pivot_longer(everything()) %>%
+        separate(name, c("v", "f"), sep = "__") %>%
+        pivot_wider(names_from = v, values_from = value)
+        
+
+fin <- rbind(nord, con,angl)
+Regime <- c("S", "C", "L")
+fin <- cbind(Regime, fin)
+fin_footnote <- fin
+
+fin_footnote <- fin_footnote[,-2]
+colnames(fin_footnote) <- c(" ","TPE",
+                            "HE",
+                            "EE",
+                            "SPE",
+                            "GE",
+                            "LRF",
+                            "PHE",
+                            "LE",
+                            "GI",
+                            "GDP",
+                            "ED",
+                            "UD",
+                            "C",
+                            "PPE")
+
+fin_footnote %>%
+        kable(booktabs=T, digits=2, caption = "Comparison of Social and Economic Indicators. Countries are clustered in accordance with Esping Andersen (1980) results") %>%
+        footnote(general = "Data: Measuring Socialism 2019 & OECD (2022)",
+                 number = c("Socialist countries refer to Sweden, Finland, Norway, Denmark,and Netherlands", 
+                              "Conservative countries refer to Austria, Belgium, France, Germany, and Italy",
+                              "Liberal countries refer to Canada, United States, Australia, Ireland,Japan and Switzerland"),number_title = "Welfare Regimes",
+                 alphabet_title = "Variable Description",
+                        c("TPE = Total Public Expenditures (% GDP)",
+                         "HE = Health Expenditures (Public, and Private, % GDP)",
+                         "EE = Education Expenditures (% GDP)",
+                         "SPE = Social Protection Expenditures (% GDP)",
+                         "GE = Employment in Government",
+                         "LFR= Labour Force Participation Rate for Females",
+                         "GI=Gini Index",
+                         "LE=Life Expectancy at birth",
+                         "GDP per capita",
+                         "ED=Ethnic Diversity",
+                         "UD=Union Density",
+                         "C=Degree of Corporatism",
+                         "PPE = Private Pension Expenditure (%GDP)")) %>% 
+        
+        kable_styling(latex_options = c("HOLD_position","striped"), full_width = T)
+```
+
+## Appendix
+
+## 1.1 Missing value analysis
+
+```{r echo=FALSE}
+total_sum_calculation(final, colnames(final), 0.3)
+plot(mi)
+```
+
+## 1.2 Robustnes checks
+
+```{r}
+#Outliers
+plone <- ggplot(data.wf, aes(PC1, PC2)) +
+        geom_text(aes(label = Countries, vjust = -1)) +
+        stat_ellipse(geom = "polygon", col = "black", alpha = 0.5) +
+        geom_point(shape = 21, col = "black")
+
+plone 
+
+#Screeplot 
+fviz_eig(res.pca, addlabels = TRUE, ylim = c(0, 50))
+#Individual contribution 
+fviz_contrib(res.pca, choice = "ind", axes = 2)
+```
+
+## 1.3 Analysis
+
+```{r }
+cl1 <- res.hcpc$desc.var$quanti
+cl1
+res.hcpc$desc.axes$quanti
+res.hcpc$desc.ind$para
+#1.3.4
+results <- res.hcpc$desc.var$quanti
+results
+```
+
+## 1.4 Variable Oversight
+
+```{r echo=FALSE}
+######################### DESCRIPTIVE TABLES ########################################
+#Variable oversight
+data.frame(Variables = c("General Government Public Expenditures (% GDP)",
+                         "Health Expenditures (Public, and Private, % GDP)",
+                         "Education Expenditures (% GDP)",
+                         "Social Protection Expenditures (% GDP)",
+                         "Labour Force Participation Rate for Females",
+                         "Gini Index",
+                         "Life Expectancy at birth",
+                         "GDP per capita",
+                         "Ethnic Diversity",
+                         "Union Density",
+                         "Degree of Corporatism"),
+           Item = c("Measure of a country’s total amount of public spending. Expenditures encompass all things on which governments spend their revenues." ,
+                    "Consists of two indicators that measures the amount of government spending on public and private health care.",
+                    "Measures the amount of government spending on educational services. This includes spending on the maintenance of all levels of education.",
+                    "Measures the amount of government spending on supporting the standard of living of disadvantaged or vulnerable groups.",
+                    "Labour force participation rate for Females, as percentage of working age population",
+                    "The Gini coefficient is based on the comparison of cumulative proportions of the population against cumulative proportions of income they receive, and it ranges between 0 in the case of perfect equality and 1 in the case of perfect inequality.",
+                    "Life expectancy at birth is defined as how long, on average, a newborn can expect to live, if current death rates do not change.",
+                    "Measure of the value added created through the production of goods and services in a country during a certain period.",
+                    "Measures the share of 15-64 year olds population by origin, in % of total (native plus foreign) 15-64 age population.",
+                    "The trade union density is defined as the number of net union members as a proportion of the number of employees.",
+                    "Collective bargaining coverage rate represents the share of workers covered by valid collective agreements in force."),
+           Year = c("2017", "2015-2017", "2015-2017", "2015-2017", "2017","2017","2017","2017","2017","2017","2017"),
+           Source = c("OECD","Measuring Socialism; OECD", "Measuring Socialism",
+                      "Measuring Socialism", "OECD"," OECD","OECD","OECD",
+                      "OECD", "OECD", "OECD")) %>% 
+        kbl(booktabs = T, caption="Variable Oversight",align = "lcl", longtable = T) %>%
+        pack_rows("Welfare Policy variables:",1,4, bold = T) %>% 
+        pack_rows("Developmental variables:",5,7,bold = T) %>% 
+        pack_rows("Contextual Variables:",8,9,bold = T) %>%
+        pack_rows("Political Variables:", 10,11, bold = T) %>% 
+        kable_styling(latex_options = c("HOLD_position","repeat_header"), full_width = T)
+```
+
+```{=html}
+<!--
+# References
+\setlength{\parindent}{-0.2in}
+\setlength{\leftskip}{0.2in}
+\setlength{\parskip}{8pt}
+\vspace*{-0.2in}
+\noindent
+-->
+```
